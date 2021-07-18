@@ -450,7 +450,7 @@ async fn test_connectivity_on_startup() -> Result<()> {
     tokio::spawn(async move {
         let result = a_agent.accept(a_cancel_rx, b_ufrag, b_pwd).await;
         assert!(result.is_ok(), "agent accept expected OK");
-        drop(accepted_tx);
+        let _ = accepted_tx.send(()).await;
     });
 
     let _ = accepting_rx.recv().await;
@@ -815,7 +815,7 @@ async fn test_invalid_agent_starts() -> Result<()> {
     let (cancel_tx3, cancel_rx3) = mpsc::channel(1);
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(cancel_tx3);
+        let _ = cancel_tx3.send(()).await;
     });
 
     let result = a.dial(cancel_rx3, "foo".to_owned(), "bar".to_owned()).await;
