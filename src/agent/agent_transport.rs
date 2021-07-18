@@ -27,7 +27,7 @@ impl Agent {
             // block until pair selected
             tokio::select! {
                 _ = on_connected_rx.recv() => {},
-                _ = cancel_rx.recv() => {
+                Some(()) = cancel_rx.recv() => {
                     return Err(Error::ErrCanceledByCaller.into());
                 }
             }
@@ -55,7 +55,7 @@ impl Agent {
             // block until pair selected
             tokio::select! {
                 _ = on_connected_rx.recv() => {},
-                _ = cancel_rx.recv() => {
+                Some(()) = cancel_rx.recv() => {
                     return Err(Error::ErrCanceledByCaller.into());
                 }
             }
