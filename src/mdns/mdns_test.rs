@@ -32,8 +32,24 @@ async fn test_multicast_dns_only_connection() -> Result<()> {
     b_agent.on_connection_state_change(b_notifier).await;
 
     connect_with_vnet(&a_agent, &b_agent).await?;
-    let _ = a_connected.recv().await;
-    let _ = b_connected.recv().await;
+    let mut a_done = false;
+    let mut b_done = false;
+    loop {
+        tokio::select! {
+            _ = a_connected.recv() => {
+                a_done = true;
+                println!("A connected");
+            }
+            _ = b_connected.recv() => {
+                b_done = true;
+                println!("B connected");
+            }
+        }
+
+        if a_done && b_done {
+            break;
+        }
+    }
 
     a_agent.close().await?;
     b_agent.close().await?;
