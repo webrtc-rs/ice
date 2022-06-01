@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use util::{sync::Mutex, Buffer, Conn, Error};
 
 use super::socket_addr_ext::{SocketAddrExt, MAX_ADDR_SIZE};
-use super::{normalize_socket_addr, UDPMuxDefault, RECEIVE_MTU};
+use super::{normalize_socket_addr, RECEIVE_MTU};
 
 #[inline(always)]
 /// Create a buffer of appropriate size to fit both a packet with max RECEIVE_MTU and the
@@ -18,19 +18,23 @@ fn make_buffer() -> Vec<u8> {
     vec![0u8; RECEIVE_MTU + MAX_ADDR_SIZE + 2 + 2]
 }
 
-pub(crate) struct UDPMuxConnParams {
-    pub(super) local_addr: SocketAddr,
+#[async_trait]
+pub trait UDPMuxCyclic {
+    async fn register_conn_for_address(&self, conn: &UDPMuxConn, addr: SocketAddr);
+    async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> Result<usize, Error>;
+}
 
-    pub(super) key: String,
-
+pub struct UDPMuxConnParams {
+    pub local_addr: SocketAddr,
+    pub key: String,
     // NOTE: This Arc exists in both directions which is liable to cause a retain cycle. This is
     // accounted for in [`UDPMuxDefault::close`], which makes sure to drop all Arcs referencing any
     // `UDPMuxConn`.
-    pub(super) udp_mux: Arc<UDPMuxDefault>,
+    pub udp_mux: Box<dyn UDPMuxCyclic + Send + Sync>,
 }
 
 struct UDPMuxConnInner {
-    pub(super) params: UDPMuxConnParams,
+    params: UDPMuxConnParams,
 
     /// Close Sender. We'll send a value on this channel when we close
     closed_watch_tx: Mutex<Option<watch::Sender<bool>>>,
@@ -148,7 +152,7 @@ impl UDPMuxConnInner {
 }
 
 #[derive(Clone)]
-pub(crate) struct UDPMuxConn {
+pub struct UDPMuxConn {
     /// Close Receiver. A copy of this can be obtained via [`close_tx`].
     closed_watch_rx: watch::Receiver<bool>,
 
@@ -156,7 +160,7 @@ pub(crate) struct UDPMuxConn {
 }
 
 impl UDPMuxConn {
-    pub(crate) fn new(params: UDPMuxConnParams) -> Self {
+    pub fn new(params: UDPMuxConnParams) -> Self {
         let (closed_watch_tx, closed_watch_rx) = watch::channel(false);
 
         Self {
@@ -170,11 +174,11 @@ impl UDPMuxConn {
         }
     }
 
-    pub(crate) fn key(&self) -> &str {
+    pub fn key(&self) -> &str {
         &self.inner.params.key
     }
 
-    pub(crate) async fn write_packet(&self, data: &[u8], addr: SocketAddr) -> ConnResult<()> {
+    pub async fn write_packet(&self, data: &[u8], addr: SocketAddr) -> ConnResult<()> {
         // NOTE: Pion/ice uses Sync.Pool to optimise this.
         let mut buffer = make_buffer();
         let mut offset = 0;
@@ -203,26 +207,26 @@ impl UDPMuxConn {
         Ok(())
     }
 
-    pub(crate) fn is_closed(&self) -> bool {
+    pub fn is_closed(&self) -> bool {
         self.inner.is_closed()
     }
 
     /// Get a copy of the close [`tokio::sync::watch::Receiver`] that fires when this
     /// connection is closed.
-    pub(crate) fn close_rx(&self) -> watch::Receiver<bool> {
+    pub fn close_rx(&self) -> watch::Receiver<bool> {
         self.closed_watch_rx.clone()
     }
 
     /// Close this connection
-    pub(crate) fn close(&self) {
+    pub fn close(&self) {
         self.inner.close();
     }
 
-    pub(super) fn get_addresses(&self) -> Vec<SocketAddr> {
+    pub fn get_addresses(&self) -> Vec<SocketAddr> {
         self.inner.get_addresses()
     }
 
-    pub(super) async fn add_address(&self, addr: SocketAddr) {
+    pub async fn add_address(&self, addr: SocketAddr) {
         self.inner.add_address(addr);
         self.inner
             .params
@@ -231,11 +235,11 @@ impl UDPMuxConn {
             .await;
     }
 
-    pub(super) fn remove_address(&self, addr: &SocketAddr) {
+    pub fn remove_address(&self, addr: &SocketAddr) {
         self.inner.remove_address(addr)
     }
 
-    pub(super) fn contains_address(&self, addr: &SocketAddr) -> bool {
+    pub fn contains_address(&self, addr: &SocketAddr) -> bool {
         self.inner.contains_address(addr)
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::ErrorKind, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, io::ErrorKind, net::SocketAddr, sync::Arc, sync::Weak};
 
 use util::{sync::RwLock, Conn, Error};
 
@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use tokio::sync::{watch, Mutex};
 
 mod udp_mux_conn;
-use udp_mux_conn::{UDPMuxConn, UDPMuxConnParams};
+pub use udp_mux_conn::{UDPMuxConn, UDPMuxCyclic, UDPMuxConnParams};
 
 #[cfg(test)]
 mod udp_mux_test;
@@ -118,7 +118,7 @@ impl UDPMuxDefault {
         let params = UDPMuxConnParams {
             local_addr,
             key: ufrag.into(),
-            udp_mux: Arc::clone(self),
+            udp_mux: Box::new(Arc::downgrade(self)),
         };
 
         Ok(UDPMuxConn::new(params))
@@ -331,5 +331,52 @@ impl UDPMux for UDPMuxDefault {
                 address_map.remove(&address);
             }
         }
+    }
+
+}
+
+#[async_trait]
+impl UDPMuxCyclic for Weak<UDPMuxDefault> {
+    async fn register_conn_for_address(&self, conn: &UDPMuxConn, addr: SocketAddr) {
+        let me = self.upgrade();
+        if me.is_none() {
+            return;
+        }
+        let me = me.unwrap();
+
+        if me.is_closed().await {
+            return;
+        }
+
+        let key = conn.key();
+        {
+            let mut addresses = me.address_map.write();
+
+            addresses
+                .entry(addr)
+                .and_modify(|e| {
+                    if e.key() != key {
+                        e.remove_address(&addr);
+                        *e = conn.clone()
+                    }
+                })
+                .or_insert_with(|| conn.clone());
+        }
+
+        log::debug!("Registered {} for {}", addr, key);
+    }
+
+    async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> Result<usize, Error> {
+        let me = self.upgrade();
+        if me.is_none() {
+            return Err(Error::Other("send_to called, but UDPMuxDefault is gone".to_string()));
+        }
+
+        let me = me.unwrap();
+        me.params
+            .conn
+            .send_to(buf, *target)
+            .await
+            .map_err(Into::into)
     }
 }
