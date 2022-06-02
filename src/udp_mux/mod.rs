@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use tokio::sync::{watch, Mutex};
 
 mod udp_mux_conn;
-pub use udp_mux_conn::{UDPMuxConn, UDPMuxCyclic, UDPMuxConnParams};
+pub use udp_mux_conn::{UDPMuxConn, UDPMuxConnParams, WeakUDPMux};
 
 #[cfg(test)]
 mod udp_mux_test;
@@ -332,51 +332,26 @@ impl UDPMux for UDPMuxDefault {
             }
         }
     }
-
 }
 
 #[async_trait]
-impl UDPMuxCyclic for Weak<UDPMuxDefault> {
+impl WeakUDPMux for Weak<UDPMuxDefault> {
     async fn register_conn_for_address(&self, conn: &UDPMuxConn, addr: SocketAddr) {
-        let me = self.upgrade();
-        if me.is_none() {
-            return;
+        if let Some(mux) = self.upgrade() {
+            mux.register_conn_for_address(conn, addr).await;
         }
-        let me = me.unwrap();
-
-        if me.is_closed().await {
-            return;
-        }
-
-        let key = conn.key();
-        {
-            let mut addresses = me.address_map.write();
-
-            addresses
-                .entry(addr)
-                .and_modify(|e| {
-                    if e.key() != key {
-                        e.remove_address(&addr);
-                        *e = conn.clone()
-                    }
-                })
-                .or_insert_with(|| conn.clone());
-        }
-
-        log::debug!("Registered {} for {}", addr, key);
     }
 
     async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> Result<usize, Error> {
-        let me = self.upgrade();
-        if me.is_none() {
-            return Err(Error::Other("send_to called, but UDPMuxDefault is gone".to_string()));
+        match self.upgrade() {
+            Some(mux) => mux.send_to(buf, target).await,
+            None => {
+                return Err(Error::Other(format!(
+                    "wanted to send {} bytes to {}, but UDP muxer is gone",
+                    buf.len(),
+                    target
+                )))
+            }
         }
-
-        let me = me.unwrap();
-        me.params
-            .conn
-            .send_to(buf, *target)
-            .await
-            .map_err(Into::into)
     }
 }
