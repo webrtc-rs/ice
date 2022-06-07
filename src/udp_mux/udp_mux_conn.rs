@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use std::{collections::HashSet, io, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, io, net::SocketAddr, sync::Arc, sync::Weak};
 
 use async_trait::async_trait;
 use tokio::sync::watch;
@@ -11,7 +11,7 @@ use super::{normalize_socket_addr, RECEIVE_MTU};
 
 /// A trait for a [`UDPMuxConn`] to communicate with an UDP mux.
 #[async_trait]
-pub trait WeakUDPMux {
+pub trait UDPMuxWriter {
     /// Registers an address for the given connection.
     async fn register_conn_for_address(&self, conn: &UDPMuxConn, addr: SocketAddr);
     /// Sends the content of the buffer to the given target.
@@ -32,13 +32,11 @@ pub struct UDPMuxConnParams {
     ///
     /// ```no_run
     /// let params = UDPMuxConnParams {
-    ///     udp_mux: Box::new(Arc::downgrade(udp_mux_arc)),
+    ///     udp_mux: Arc::downgrade(udp_mux_arc),
     ///     ...
     /// };
     /// ```
-    ///
-    /// See [`WeakUDPMux`].
-    pub udp_mux: Box<dyn WeakUDPMux + Send + Sync>,
+    pub udp_mux: Weak<dyn UDPMuxWriter + Send + Sync>,
 }
 
 type ConnResult<T> = Result<T, util::Error>;
@@ -128,11 +126,9 @@ impl UDPMuxConn {
     /// Registers a new address for this connection.
     pub async fn add_address(&self, addr: SocketAddr) {
         self.inner.add_address(addr);
-        self.inner
-            .params
-            .udp_mux
-            .register_conn_for_address(self, addr)
-            .await;
+        if let Some(mux) = self.inner.params.udp_mux.upgrade() {
+            mux.register_conn_for_address(self, addr).await;
+        }
     }
 
     /// Deregisters an address.
@@ -203,7 +199,15 @@ impl UDPMuxConnInner {
     }
 
     async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> ConnResult<usize> {
-        self.params.udp_mux.send_to(buf, target).await
+        if let Some(mux) = self.params.udp_mux.upgrade() {
+            mux.send_to(buf, target).await
+        } else {
+            Err(Error::Other(format!(
+                "wanted to send {} bytes to {}, but UDP mux is gone",
+                buf.len(),
+                target
+            )))
+        }
     }
 
     fn is_closed(&self) -> bool {
