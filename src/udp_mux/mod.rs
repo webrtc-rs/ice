@@ -328,7 +328,6 @@ impl UDPMuxWriter for UDPMuxDefault {
         log::debug!("Registered {} for {}", addr, key);
     }
 
-
     async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> Result<usize, Error> {
         self.params
             .conn

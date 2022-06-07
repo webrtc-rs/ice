@@ -32,7 +32,7 @@ pub struct UDPMuxConnParams {
     ///
     /// ```no_run
     /// let params = UDPMuxConnParams {
-    ///     udp_mux: Arc::downgrade(udp_mux_arc),
+    ///     udp_mux: Arc::downgrade(udp_mux_arc) as Weak<dyn UDPMuxWriter + Send + Sync>,
     ///     ...
     /// };
     /// ```
