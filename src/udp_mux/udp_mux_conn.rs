@@ -10,7 +10,7 @@ use super::socket_addr_ext::{SocketAddrExt, MAX_ADDR_SIZE};
 use super::{normalize_socket_addr, UDPMuxDefault, RECEIVE_MTU};
 
 #[inline(always)]
-/// Create a buffer of appropriate size to fit both a packet with max RECEIVE_MTU and the
+/// Create a buffer of appropriate size to fit both a packet with max `RECEIVE_MTU` and the
 /// additional metadata used for muxing.
 fn make_buffer() -> Vec<u8> {
     // The 4 extra bytes are used to encode the length of the data and address respectively.
@@ -123,7 +123,7 @@ impl UDPMuxConnInner {
     pub(super) fn get_addresses(&self) -> Vec<SocketAddr> {
         let addresses = self.addresses.lock();
 
-        addresses.iter().cloned().collect()
+        addresses.iter().copied().collect()
     }
 
     pub(super) fn add_address(self: &Arc<Self>, addr: SocketAddr) {
@@ -232,7 +232,7 @@ impl UDPMuxConn {
     }
 
     pub(super) fn remove_address(&self, addr: &SocketAddr) {
-        self.inner.remove_address(addr)
+        self.inner.remove_address(addr);
     }
 
     pub(super) fn contains_address(&self, addr: &SocketAddr) -> bool {
