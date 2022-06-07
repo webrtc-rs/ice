@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::error::Result;
-use stun::message::{BINDING_REQUEST, Message};
+use stun::message::{Message, BINDING_REQUEST};
 
 use tokio::net::UdpSocket;
 use tokio::time::{sleep, timeout};
