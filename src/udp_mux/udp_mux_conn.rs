@@ -29,13 +29,6 @@ pub struct UDPMuxConnParams {
     /// A `std::sync::Weak` reference to the UDP mux.
     ///
     /// NOTE: a non-owning reference should be used to prevent possible cycles.
-    ///
-    /// ```no_run
-    /// let params = UDPMuxConnParams {
-    ///     udp_mux: Arc::downgrade(udp_mux_arc) as Weak<dyn UDPMuxWriter + Send + Sync>,
-    ///     ...
-    /// };
-    /// ```
     pub udp_mux: Weak<dyn UDPMuxWriter + Send + Sync>,
 }
 
